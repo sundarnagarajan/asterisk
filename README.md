@@ -15,6 +15,7 @@ see https://github.com/naf419/asterisk/wiki
 [global]
 type=global
 debug=true
+keep_alive_interval=90
 
 ; if using chan_sip to host sip clients instead of chan_pjsip,
 ; you wont have the (required) udp transport that supports those
