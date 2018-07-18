@@ -2812,8 +2812,8 @@ static transport_from_endpoint_callback transport_from_endpoint_override_callbac
 
 void ast_sip_set_transport_from_endpoint_override(transport_from_endpoint_callback callback)
 {
-        ast_log(LOG_DEBUG, "Transport override set!\n");
-        transport_from_endpoint_override_callback = callback;
+	ast_log(LOG_DEBUG, "Transport override set!\n");
+	transport_from_endpoint_override_callback = callback;
 }
 
 static int register_service(void *data)
@@ -3447,6 +3447,7 @@ int ast_sip_set_tpselector_from_ep_or_uri(const struct ast_sip_endpoint *endpoin
 	pjsip_sip_uri *sip_uri, pjsip_tpselector *selector)
 {
 	char transport_name[128];
+
 	if (ast_sip_get_transport_name(endpoint, sip_uri, transport_name, sizeof(transport_name))) {
 		return 0;
 	}

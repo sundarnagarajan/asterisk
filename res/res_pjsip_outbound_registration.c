@@ -571,11 +571,11 @@ static pj_str_t OUTBOUND_NAME = { "outbound", 8 };
 static pj_status_t send_on_transport(struct sip_outbound_registration_client_state *client_state, 
 	pjsip_tx_data *tdata)
 {
-        pjsip_tpselector selector = { .type = PJSIP_TPSELECTOR_TRANSPORT, };
-        selector.u.transport = client_state->transport;
+	pjsip_tpselector selector = { .type = PJSIP_TPSELECTOR_TRANSPORT, };
+	selector.u.transport = client_state->transport;
 
-        pjsip_regc_set_transport(client_state->client, &selector);
-        return pjsip_regc_send(client_state->client, tdata);
+	pjsip_regc_set_transport(client_state->client, &selector);
+	return pjsip_regc_send(client_state->client, tdata);
 }
 
 struct stateless_send_resolver_callback_data
@@ -591,7 +591,6 @@ stateless_send_resolver_callback( pj_status_t status, void *token, const struct 
 	RAII_VAR(struct stateless_send_resolver_callback_data *, data, token, ast_free);
 	pjsip_tpselector orig_selector = { .type = PJSIP_TPSELECTOR_NONE, };
 
-	//struct stateless_send_resolver_callback_data *data = (struct stateless_send_resolver_callback_data*) token;
 	struct sip_outbound_registration_client_state *client_state = data->client_state;
 	pjsip_tx_data *tdata = data->tdata;
 
@@ -636,7 +635,7 @@ stateless_send_resolver_callback( pj_status_t status, void *token, const struct 
 
 /*! \brief Send a message using a manually-built transport */
 static pj_status_t registration_client_send_manual(struct sip_outbound_registration_client_state *client_state,
-        pjsip_tx_data *tdata)
+	pjsip_tx_data *tdata)
 {
 	pj_status_t status;
 	pjsip_host_info dest_info;
@@ -1517,7 +1516,7 @@ static int fetch_access_token(struct ast_sip_auth *auth)
 	struct ast_json_error error;
 	RAII_VAR(struct ast_json *, jobj, NULL, ast_json_unref);
 
-	//set timeout to be shorter than default 180s (also checks func_curl is available)
+	/* set timeout to be shorter than default 180s (also checks func_curl is available) */
 	if (ast_func_write(NULL, "CURLOPT(conntimeout)", "10")) {
 		ast_log(LOG_ERROR, "CURL is unavailable. This is required for OAuth 2.0 authentication. Please ensure it is loaded.\n");
 		return -1;
@@ -1590,14 +1589,14 @@ static int set_outbound_initial_authentication_credentials(pjsip_regc *regc,
 
 			pjsip_regc_set_credentials(regc, 1, auth_creds);
 
-			// for oauth, send auth without waiting for unauthorized response
+			/* for oauth, send auth without waiting for unauthorized response */
 			prefs.initial_auth = PJ_TRUE;
 			pj_cstr(&prefs.algorithm, "oauth");
 			pjsip_regc_set_prefs(regc, &prefs);
 
 			break;
 		default:
-			//other cases handled after receiving auth rejection
+			/* other cases handled after receiving auth rejection */
 			break;
 		}
 	}
@@ -2570,7 +2569,7 @@ static void handle_outgoing_request(struct ast_sip_session *session, pjsip_tx_da
 
 	ast_log(LOG_DEBUG, "Found matching outbound registration state\n");
 
-	// add Route for every Service-Route in associated registration response
+	/* add Route for every Service-Route in associated registration response */
 	service_routes = state->client_state->service_route_vector;
 
 	for (i = 0; i < AST_VECTOR_SIZE(&service_routes); ++i)
@@ -2586,11 +2585,11 @@ static void handle_outgoing_request(struct ast_sip_session *session, pjsip_tx_da
 	}
 
 
-	// add ppi header for first Associated-URI in associated registration response
+	/* add ppi header for first Associated-URI in associated registration response */
 	pai_hdr = pjsip_generic_string_hdr_create(tdata->pool, &pj_pai_name, &state->client_state->associated_uri);
 	pjsip_msg_add_hdr(tdata->msg, (pjsip_hdr *)pai_hdr);
 
-	// add outbound & path to supported header
+	/* add outbound & path to supported header */
 	add_to_supported_header(tdata, &PATH_NAME);
 	add_to_supported_header(tdata, &OUTBOUND_NAME);
 }
