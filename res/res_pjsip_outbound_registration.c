@@ -350,7 +350,7 @@ AST_VECTOR(service_route_vector_type, pj_str_t);
 /* \brief Caching pool to use to create pool to store saved pjsip strings */
 static pj_caching_pool cachingpool;
 
-/* \brief Pool to use to store save pjsip strings */
+/* \brief Pool to use to store saved pjsip strings */
 static pj_pool_t *reg_pool;
 
 /*! \brief Outbound registration client state information (persists for lifetime of regc) */
@@ -595,7 +595,8 @@ stateless_send_resolver_callback( pj_status_t status, void *token, const struct 
 	pjsip_tx_data *tdata = data->tdata;
 
 	if (status != PJ_SUCCESS) {
-		ast_log(LOG_ERROR, "Resolver failed. Cannot send message");
+		ast_log(LOG_ERROR, "Resolver failed. Cannot send message\n");
+		return;
 	}
 
 	ast_sip_set_tpselector_from_transport_name(client_state->transport_name, &orig_selector);
@@ -1083,15 +1084,13 @@ static void save_response_fields_to_client_state(struct registration_response *r
 	static const pj_str_t associated_uri_str = { "P-Associated-URI", 16 };
 	static const pj_str_t service_route_str = { "Service-Route", 13 };
 
-	pjsip_hdr *h;
-	pjsip_msg *msg;
-	pjsip_hdr* associated_uri_hdr;
+	pjsip_hdr *service_route_hdr = NULL;
+	pjsip_msg *msg = response->rdata->msg_info.msg;
+	pjsip_hdr *associated_uri_hdr;
 
 	AST_VECTOR_INIT(&response->client_state->service_route_vector, 0);
-	msg = response->rdata->msg_info.msg;
-	h = NULL;
-	while((h = (pjsip_hdr*)pjsip_msg_find_hdr_by_name(msg, &service_route_str, h == NULL ? NULL : h->next))) {
-		pj_str_t value = ((pjsip_generic_string_hdr*)h)->hvalue;
+	while((service_route_hdr = (pjsip_hdr*)pjsip_msg_find_hdr_by_name(msg, &service_route_str, service_route_hdr ? service_route_hdr->next : NULL))) {
+		pj_str_t value = ((pjsip_generic_string_hdr*)service_route_hdr)->hvalue;
 		pj_str_t copy;
 		pj_strdup_with_null(reg_pool, &copy, &value);
 		AST_VECTOR_APPEND(&response->client_state->service_route_vector, copy);
@@ -1101,7 +1100,7 @@ static void save_response_fields_to_client_state(struct registration_response *r
 	if ((associated_uri_hdr = (pjsip_hdr*)pjsip_msg_find_hdr_by_name(msg, &associated_uri_str, NULL))) {
 		pj_str_t value = ((pjsip_generic_string_hdr*)associated_uri_hdr)->hvalue;
 		pj_strdup_with_null(reg_pool, &response->client_state->associated_uri, &value);
-		ast_log(LOG_DEBUG, "Stored associated uri length %ld: %s\n", response->client_state->associated_uri.slen, response->client_state->associated_uri.ptr);
+		ast_log(LOG_DEBUG, "Stored associated uri: %s\n", response->client_state->associated_uri.ptr);
 	}
 }
 
@@ -2590,8 +2589,7 @@ static void handle_outgoing_request(struct ast_sip_session *session, pjsip_tx_da
 	pjsip_msg_add_hdr(tdata->msg, (pjsip_hdr *)pai_hdr);
 
 	/* add outbound & path to supported header */
-	add_to_supported_header(tdata, &PATH_NAME);
-	add_to_supported_header(tdata, &OUTBOUND_NAME);
+	add_configured_supported_headers(state->client_state, tdata);
 }
 
 

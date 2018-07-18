@@ -84,7 +84,7 @@ static int set_outbound_authentication_credentials(pjsip_auth_clt_sess *auth_ses
 			auth_creds[i].data_type = PJSIP_CRED_DATA_DIGEST;
 			break;
 		case AST_SIP_AUTH_TYPE_OAUTH:
-			//nothing to do. handled seperately in res_pjsip_outbound_registration
+			/* nothing to do. handled seperately in res_pjsip_outbound_registration */
 			break;
 		case AST_SIP_AUTH_TYPE_ARTIFICIAL:
 			ast_log(LOG_ERROR, "Trying to set artificial outbound auth credentials shouldn't happen.\n");
