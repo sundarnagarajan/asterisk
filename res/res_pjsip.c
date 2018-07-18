@@ -3290,6 +3290,7 @@ int ast_sip_dlg_set_transport(const struct ast_sip_endpoint *endpoint, pjsip_dia
 	pjsip_tpselector *selector)
 {
 	pjsip_sip_uri *uri;
+	pjsip_transport* transport;
 	pjsip_tpselector sel = { .type = PJSIP_TPSELECTOR_NONE, };
 
 	uri = pjsip_uri_get_uri(dlg->target);
@@ -3299,7 +3300,6 @@ int ast_sip_dlg_set_transport(const struct ast_sip_endpoint *endpoint, pjsip_dia
 
 	ast_sip_set_tpselector_from_ep_or_uri(endpoint, uri, selector);
 
-	pjsip_transport* transport;
 	if (transport_from_endpoint_override_callback && transport_from_endpoint_override_callback(endpoint, &transport)) {
 		ast_log(LOG_DEBUG, "Overriding endpoint transport to use %p\n", (void*)transport);
 

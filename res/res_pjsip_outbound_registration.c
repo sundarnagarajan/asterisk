@@ -589,6 +589,7 @@ static void
 stateless_send_resolver_callback( pj_status_t status, void *token, const struct pjsip_server_addresses *addr)
 {
 	RAII_VAR(struct stateless_send_resolver_callback_data *, data, token, ast_free);
+	pjsip_tpselector orig_selector = { .type = PJSIP_TPSELECTOR_NONE, };
 
 	//struct stateless_send_resolver_callback_data *data = (struct stateless_send_resolver_callback_data*) token;
 	struct sip_outbound_registration_client_state *client_state = data->client_state;
@@ -598,7 +599,6 @@ stateless_send_resolver_callback( pj_status_t status, void *token, const struct 
 		ast_log(LOG_ERROR, "Resolver failed. Cannot send message");
 	}
 
-	pjsip_tpselector orig_selector = { .type = PJSIP_TPSELECTOR_NONE, };
 	ast_sip_set_tpselector_from_transport_name(client_state->transport_name, &orig_selector);
 
 	if (orig_selector.type != PJSIP_TPSELECTOR_LISTENER)
@@ -639,6 +639,8 @@ static pj_status_t registration_client_send_manual(struct sip_outbound_registrat
         pjsip_tx_data *tdata)
 {
 	pj_status_t status;
+	pjsip_host_info dest_info;
+	struct stateless_send_resolver_callback_data* data;
 
 	/* Due to the message going out the callback may now be invoked, so bump the count */
 	ao2_ref(client_state, +1);
@@ -650,13 +652,12 @@ static pj_status_t registration_client_send_manual(struct sip_outbound_registrat
 	}
 
 	/* If not, then create a new one. First, resolve the endpoint's host */
-	pjsip_host_info dest_info;
 	status = pjsip_process_route_set(tdata, &dest_info);
 
 	if (status != PJ_SUCCESS)
 		return status;
 
-	struct stateless_send_resolver_callback_data* data = ast_malloc(sizeof(struct stateless_send_resolver_callback_data));
+	data = ast_malloc(sizeof(struct stateless_send_resolver_callback_data));
 	data->client_state = client_state;
 	data->tdata = tdata;
 
@@ -1080,10 +1081,12 @@ static void registration_transport_monitor_setup(pjsip_transport *transport, con
 
 static void save_response_fields_to_client_state(struct registration_response *response)
 {
+	static const pj_str_t associated_uri_str = { "P-Associated-URI", 16 };
+	static const pj_str_t service_route_str = { "Service-Route", 13 };
+
 	pjsip_hdr *h;
 	pjsip_msg *msg;
-
-	static const pj_str_t service_route_str = { "Service-Route", 13 };
+	pjsip_hdr* associated_uri_hdr;
 
 	AST_VECTOR_INIT(&response->client_state->service_route_vector, 0);
 	msg = response->rdata->msg_info.msg;
@@ -1096,8 +1099,6 @@ static void save_response_fields_to_client_state(struct registration_response *r
 		ast_log(LOG_DEBUG, "Stored service-route: %s\n", copy.ptr);
 	}
 
-	static const pj_str_t associated_uri_str = { "P-Associated-URI", 16 };
-	pjsip_hdr* associated_uri_hdr;
 	if ((associated_uri_hdr = (pjsip_hdr*)pjsip_msg_find_hdr_by_name(msg, &associated_uri_str, NULL))) {
 		pj_str_t value = ((pjsip_generic_string_hdr*)associated_uri_hdr)->hvalue;
 		pj_strdup_with_null(reg_pool, &response->client_state->associated_uri, &value);
@@ -1562,6 +1563,7 @@ static int set_outbound_initial_authentication_credentials(pjsip_regc *regc,
 	size_t auth_size = AST_VECTOR_SIZE(auth_vector);
 	struct ast_sip_auth **auths = ast_alloca(auth_size * sizeof(*auths));
 	pjsip_cred_info *auth_creds = ast_alloca(1 * sizeof(*auth_creds));
+	pjsip_auth_clt_pref prefs;
 	int res = 0;
 	int i;
 
@@ -1589,7 +1591,6 @@ static int set_outbound_initial_authentication_credentials(pjsip_regc *regc,
 			pjsip_regc_set_credentials(regc, 1, auth_creds);
 
 			// for oauth, send auth without waiting for unauthorized response
-			pjsip_auth_clt_pref prefs;
 			prefs.initial_auth = PJ_TRUE;
 			pj_cstr(&prefs.algorithm, "oauth");
 			pjsip_regc_set_prefs(regc, &prefs);
@@ -1609,12 +1610,16 @@ cleanup:
 /*! \brief Helper to convert ; seperated list to pjsip_param list */
 static pjsip_param* get_params_list_from_string(const char* param_string)
 {
-	pjsip_param *params = PJ_POOL_ALLOC_T(reg_pool, pjsip_param);
+	pjsip_param *params;
+	char *buf;
+	char *word;
+	char *next;
+
 	params = PJ_POOL_ALLOC_T(reg_pool, pjsip_param);
 	pj_list_init(params);
 
-	char *buf = ast_strdupa(param_string);
-	char *word, *next = buf;
+	buf = ast_strdupa(param_string);
+	next = buf;
 	while ((word = strsep(&next, ";"))) {
 		char name[31];
 		char value[31];
@@ -2508,19 +2513,20 @@ static int find_registration(void *obj, void *arg, int flags)
 
 static int transport_from_endpoint_override(const struct ast_sip_endpoint *endpoint, pjsip_transport** transport)
 {
+	RAII_VAR(struct ao2_container *, states, NULL, ao2_cleanup);
+	RAII_VAR(struct sip_outbound_registration_state *, state, NULL, ao2_cleanup);
+
 	if (!endpoint || ast_strlen_zero(endpoint->outbound_registration)) {
 		ast_log(LOG_DEBUG, "Outgoing request not associated with a registration. No mangling necessary.\n");
 		return 0;
 	}
 
-	RAII_VAR(struct ao2_container *, states, NULL, ao2_cleanup);
 	states = ao2_global_obj_ref(current_states);
 	if (!states) {
 		ast_log(LOG_ERROR, "Cannot find outbound registration states\n");
 		return 0;
 	}
 
-	RAII_VAR(struct sip_outbound_registration_state *, state, NULL, ao2_cleanup);
 	state = ao2_callback(states, 0, find_registration, (void*)endpoint->outbound_registration);
 	if (!state) {
 		ast_log(LOG_ERROR, "Cannot find matching outbound registration state: %s\n", endpoint->outbound_registration);
@@ -2536,19 +2542,26 @@ static int transport_from_endpoint_override(const struct ast_sip_endpoint *endpo
 /*! \brief Mangle outgoing INVITEs by adding headers based on the response to the associated registration request */
 static void handle_outgoing_request(struct ast_sip_session *session, pjsip_tx_data *tdata)
 {
+	static const pj_str_t route_str = { "Route", 5 };
+	static const pj_str_t pj_pai_name = { "P-Preferred-Identity", 20 };
+
+	RAII_VAR(struct ao2_container *, states, NULL, ao2_cleanup);
+	RAII_VAR(struct sip_outbound_registration_state *, state, NULL, ao2_cleanup);
+	struct service_route_vector_type service_routes;
+	pjsip_generic_string_hdr *pai_hdr;
+	int i;
+
 	if (!session || !session->endpoint || ast_strlen_zero(session->endpoint->outbound_registration)) {
 		ast_log(LOG_DEBUG, "Outgoing request not associated with a registration. No mangling necessary.\n");
 		return;
 	}
 
-	RAII_VAR(struct ao2_container *, states, NULL, ao2_cleanup);
 	states = ao2_global_obj_ref(current_states);
 	if (!states) {
 		ast_log(LOG_ERROR, "Cannot find outbound registration states\n");
 		return;
 	}
 
-	RAII_VAR(struct sip_outbound_registration_state *, state, NULL, ao2_cleanup);
 	state = ao2_callback(states, 0, find_registration, (void*)session->endpoint->outbound_registration);
 	if (!state) {
 		ast_log(LOG_ERROR, "Cannot find matching outbound registration state\n");
@@ -2558,18 +2571,15 @@ static void handle_outgoing_request(struct ast_sip_session *session, pjsip_tx_da
 	ast_log(LOG_DEBUG, "Found matching outbound registration state\n");
 
 	// add Route for every Service-Route in associated registration response
-	struct service_route_vector_type service_routes = state->client_state->service_route_vector;
+	service_routes = state->client_state->service_route_vector;
 
-	int size = AST_VECTOR_SIZE(&service_routes);
-
-	int i;
-	for (i = 0; i < size; ++i)
+	for (i = 0; i < AST_VECTOR_SIZE(&service_routes); ++i)
 	{
+		pjsip_generic_string_hdr* route_hdr;
+
 		pj_str_t service_route_str = AST_VECTOR_GET(&service_routes, i);
 		ast_log(LOG_DEBUG, "Found service-route. Adding route header for %s\n", service_route_str.ptr);
 
-		static const pj_str_t route_str = { "Route", 5 };
-		pjsip_generic_string_hdr* route_hdr;
 		route_hdr = pjsip_generic_string_hdr_create(tdata->pool, &route_str, &service_route_str);
  
 		pjsip_msg_add_hdr(tdata->msg, (pjsip_hdr*)route_hdr);
@@ -2577,8 +2587,6 @@ static void handle_outgoing_request(struct ast_sip_session *session, pjsip_tx_da
 
 
 	// add ppi header for first Associated-URI in associated registration response
-	static const pj_str_t pj_pai_name = { "P-Preferred-Identity", 20 };
-	pjsip_generic_string_hdr *pai_hdr;
 	pai_hdr = pjsip_generic_string_hdr_create(tdata->pool, &pj_pai_name, &state->client_state->associated_uri);
 	pjsip_msg_add_hdr(tdata->msg, (pjsip_hdr *)pai_hdr);
 
