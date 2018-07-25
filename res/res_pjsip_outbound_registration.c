@@ -42,6 +42,7 @@
 #include "res_pjsip/include/res_pjsip_private.h"
 #include "asterisk/res_pjsip_session.h"
 #include "asterisk/vector.h"
+#include "asterisk/strings.h"
 #include "asterisk/res_pjproject.h"
 
 /*** DOCUMENTATION
@@ -344,15 +345,6 @@ struct sip_outbound_registration {
 	unsigned int transport_reuse;
 };
 
-/* \brief Vector type to store service routes */
-AST_VECTOR(service_route_vector_type, pj_str_t);
-
-/* \brief Caching pool to use to create pool to store saved pjsip strings */
-static pj_caching_pool cachingpool;
-
-/* \brief Pool to use to store saved pjsip strings */
-static pj_pool_t *reg_pool;
-
 /*! \brief Outbound registration client state information (persists for lifetime of regc) */
 struct sip_outbound_registration_client_state {
 	/*! \brief Current state of this registration */
@@ -391,9 +383,9 @@ struct sip_outbound_registration_client_state {
 	/*! \brief Configured authentication credentials */
 	struct ast_sip_auth_vector outbound_auths;
 	/*! \brief List of service-routes in register response */
-	struct service_route_vector_type service_route_vector;
+	AST_VECTOR( service_route_vector_type, struct ast_str * ) service_route_vector;
 	/*! \brief P-Associated-URI from register response */
-	pj_str_t associated_uri;
+	struct ast_str* associated_uri;
 	/*! \brief Registration should be destroyed after completion of transaction */
 	unsigned int destroy:1;
 	/*! \brief Non-zero if we have attempted sending a REGISTER with authentication */
@@ -658,6 +650,10 @@ static pj_status_t registration_client_send_manual(struct sip_outbound_registrat
 		return status;
 
 	data = ast_malloc(sizeof(struct stateless_send_resolver_callback_data));
+	if (!data) {
+		ast_log(LOG_ERROR, "Cannot allocate stateless_send_resolver_callback_data\n");
+		return PJ_ENOMEM;
+	}
 	data->client_state = client_state;
 	data->tdata = tdata;
 
@@ -1088,19 +1084,23 @@ static void save_response_fields_to_client_state(struct registration_response *r
 	pjsip_msg *msg = response->rdata->msg_info.msg;
 	pjsip_hdr *associated_uri_hdr;
 
-	AST_VECTOR_INIT(&response->client_state->service_route_vector, 0);
+	AST_VECTOR_RESET(&response->client_state->service_route_vector, ast_free);
 	while((service_route_hdr = (pjsip_hdr*)pjsip_msg_find_hdr_by_name(msg, &service_route_str, service_route_hdr ? service_route_hdr->next : NULL))) {
 		pj_str_t value = ((pjsip_generic_string_hdr*)service_route_hdr)->hvalue;
-		pj_str_t copy;
-		pj_strdup_with_null(reg_pool, &copy, &value);
-		AST_VECTOR_APPEND(&response->client_state->service_route_vector, copy);
-		ast_log(LOG_DEBUG, "Stored service-route: %s\n", copy.ptr);
+		struct ast_str *str = ast_str_create(value.slen);
+		if (!str) {
+			ast_log(LOG_ERROR, "Could not allocate memory for string\n");
+			return;
+		}
+		ast_str_set(&str, 0, "%.*s", (int)value.slen, value.ptr);
+		AST_VECTOR_APPEND(&response->client_state->service_route_vector, str);
+		ast_log(LOG_DEBUG, "Stored service-route: %s\n", value.ptr);
 	}
 
 	if ((associated_uri_hdr = (pjsip_hdr*)pjsip_msg_find_hdr_by_name(msg, &associated_uri_str, NULL))) {
 		pj_str_t value = ((pjsip_generic_string_hdr*)associated_uri_hdr)->hvalue;
-		pj_strdup_with_null(reg_pool, &response->client_state->associated_uri, &value);
-		ast_log(LOG_DEBUG, "Stored associated uri: %s\n", response->client_state->associated_uri.ptr);
+		ast_str_set(&response->client_state->associated_uri, 0, "%.*s", (int)value.slen, value.ptr);
+		ast_log(LOG_DEBUG, "Stored associated uri: %s\n", value.ptr);
 	}
 }
 
@@ -1335,6 +1335,10 @@ static void sip_outbound_registration_client_state_destroy(void *obj)
 	ast_taskprocessor_unreference(client_state->serializer);
 	ast_free(client_state->transport_name);
 	ast_free(client_state->registration_name);
+	ast_free(client_state->associated_uri);
+
+	AST_VECTOR_CALLBACK_VOID(&client_state->service_route_vector, ast_free);
+	AST_VECTOR_FREE(&client_state->service_route_vector);
 }
 
 /*! \brief Allocator function for registration state */
@@ -1381,6 +1385,8 @@ static struct sip_outbound_registration_state *sip_outbound_registration_state_a
 		ao2_cleanup(state);
 		return NULL;
 	}
+
+	state->client_state->associated_uri = ast_str_create(256);
 
 	state->registration = ao2_bump(registration);
 	return state;
@@ -1606,14 +1612,14 @@ cleanup:
 }
 
 /*! \brief Helper to convert ; seperated list to pjsip_param list */
-static pjsip_param* get_params_list_from_string(const char* param_string)
+static pjsip_param* get_params_list_from_string(pj_pool_t *pool, const char* param_string)
 {
 	pjsip_param *params;
 	char *buf;
 	char *word;
 	char *next;
 
-	params = PJ_POOL_ALLOC_T(reg_pool, pjsip_param);
+	params = PJ_POOL_ALLOC_T(pool, pjsip_param);
 	pj_list_init(params);
 
 	buf = ast_strdupa(param_string);
@@ -1622,9 +1628,9 @@ static pjsip_param* get_params_list_from_string(const char* param_string)
 		char name[31];
 		char value[31];
 		if (sscanf(word, "%30[^=]=%30[^=]", name, value) == 2) {
-			pjsip_param *param = PJ_POOL_ALLOC_T(reg_pool, pjsip_param);
-			pj_strdup2_with_null(reg_pool, &param->name, name);
-			pj_strdup2_with_null(reg_pool, &param->value, value);
+			pjsip_param *param = PJ_POOL_ALLOC_T(pool, pjsip_param);
+			pj_strdup2_with_null(pool, &param->name, name);
+			pj_strdup2_with_null(pool, &param->value, value);
 			pj_list_insert_after(params, param);
 		}
 	}
@@ -1732,7 +1738,7 @@ static int sip_outbound_registration_regc_alloc(void *data)
 	}
 
 	if (!ast_strlen_zero(registration->contact_additional_params)) {
-		pjsip_param *params = get_params_list_from_string(registration->contact_additional_params);
+		pjsip_param *params = get_params_list_from_string(pjsip_regc_get_pool(state->client_state->client), registration->contact_additional_params);
 		pjsip_regc_update_contact(state->client_state->client, 1, &contact_uri, params);
 	}
 
@@ -2547,6 +2553,7 @@ static void handle_outgoing_request(struct ast_sip_session *session, pjsip_tx_da
 	RAII_VAR(struct sip_outbound_registration_state *, state, NULL, ao2_cleanup);
 	struct service_route_vector_type service_routes;
 	pjsip_generic_string_hdr *pai_hdr;
+	pj_str_t associated_uri_pjstr;
 	int i;
 
 	if (!session || !session->endpoint || ast_strlen_zero(session->endpoint->outbound_registration)) {
@@ -2575,17 +2582,21 @@ static void handle_outgoing_request(struct ast_sip_session *session, pjsip_tx_da
 	{
 		pjsip_generic_string_hdr* route_hdr;
 
-		pj_str_t service_route_str = AST_VECTOR_GET(&service_routes, i);
-		ast_log(LOG_DEBUG, "Found service-route. Adding route header for %s\n", service_route_str.ptr);
+		struct ast_str* service_route_str = AST_VECTOR_GET(&service_routes, i);
 
-		route_hdr = pjsip_generic_string_hdr_create(tdata->pool, &route_str, &service_route_str);
+		pj_str_t service_route_pjstr;
+		pj_strdup2_with_null(tdata->pool, &service_route_pjstr, ast_str_buffer(service_route_str));
+		ast_log(LOG_DEBUG, "Found service-route. Adding route header for %s\n", service_route_pjstr.ptr);
+
+		route_hdr = pjsip_generic_string_hdr_create(tdata->pool, &route_str, &service_route_pjstr);
  
 		pjsip_msg_add_hdr(tdata->msg, (pjsip_hdr*)route_hdr);
 	}
 
 
 	/* add ppi header for first Associated-URI in associated registration response */
-	pai_hdr = pjsip_generic_string_hdr_create(tdata->pool, &pj_pai_name, &state->client_state->associated_uri);
+	pj_strdup2_with_null(tdata->pool, &associated_uri_pjstr, ast_str_buffer(state->client_state->associated_uri));
+	pai_hdr = pjsip_generic_string_hdr_create(tdata->pool, &pj_pai_name, &associated_uri_pjstr);
 	pjsip_msg_add_hdr(tdata->msg, (pjsip_hdr *)pai_hdr);
 
 	/* add outbound & path to supported header */
@@ -2640,8 +2651,6 @@ static int unload_module(void)
 
 	ast_debug(2, "Successful shutdown.\n");
 
-	ast_pjproject_caching_pool_destroy(&cachingpool);
-
 	ao2_cleanup(shutdown_group);
 	shutdown_group = NULL;
 
@@ -2667,9 +2676,6 @@ static int load_module(void)
 	}
 	ao2_global_obj_replace_unref(current_states, new_states);
 	ao2_ref(new_states, -1);
-
-	ast_pjproject_caching_pool_init(&cachingpool, &pj_pool_factory_default_policy, 0);
-	reg_pool = pj_pool_create(&cachingpool.factory, "registration", 4096, 4096, NULL);
 
 	/*
 	 * Register sorcery object descriptions.
