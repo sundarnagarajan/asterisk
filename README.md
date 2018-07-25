@@ -1,9 +1,13 @@
-# Work-In-Progress GVSIP changes to Asterisk
+# Modifications to Asterisk to support the Google Voice SIP registrar
 
 ## Status
+- submitted as patch to upstream Asterisk: https://issues.asterisk.org/jira/browse/ASTERISK-27971
+
+## Functionality
 - registering with oauth token: WORKING
 - incoming calls: WORKING
 - outgoing calls: WORKING
+- multiple trunks: WORKING
 
 ## Known Issues
 see https://github.com/naf419/asterisk/wiki
