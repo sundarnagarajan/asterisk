@@ -26,10 +26,10 @@ gen_mods() {
 	done
 }
 
-[ x"$OUTPUT_DIR" != x ] && mkdir -p "$OUTPUT_DIR" 2&> /dev/null
+[ x"$OUTPUT_DIR" != x ] && mkdir -p "$OUTPUT_DIR" 2> /dev/null
 
 if [ x"$CACHE_DIR" != x ] ; then
-	mkdir -p "$CACHE_DIR/sounds $CACHE_DIR/externals" 2&> /dev/null
+	mkdir -p $CACHE_DIR/sounds $CACHE_DIR/externals 2> /dev/null
 fi
 
 if [ ${CCACHE_DISABLE:-0} -ne 1 ] ; then
@@ -58,9 +58,11 @@ runner ccache -s
 runner ulimit -a
 
 MAKE=`which make`
+PKGCONFIG=`which pkg-config`
 [ -d /usr/lib64 ] && _libdir=/usr/lib64
 
 common_config_args="--prefix=/usr ${_libdir:+--libdir=${_libdir}} --sysconfdir=/etc --with-pjproject-bundled"
+$PKGCONFIG 'jansson >= 2.11' || common_config_args+=" --with-jansson-bundled"
 common_config_args+=" ${CACHE_DIR:+--with-sounds-cache=${CACHE_DIR}/sounds --with-externals-cache=${CACHE_DIR}/externals}"
 common_config_args+=" --enable-dev-mode"
 export WGET_EXTRA_ARGS="--quiet"

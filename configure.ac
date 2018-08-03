@@ -423,6 +423,15 @@ AC_SUBST(AST_CODE_COVERAGE)
 AST_CHECK_RAII()
 AST_CHECK_STRSEP_ARRAY_BOUNDS()
 
+JANSSON_BUNDLED=no
+AC_ARG_WITH([jansson-bundled],
+	[AS_HELP_STRING([--with-jansson-bundled],
+		[Use bundled jansson library])],
+	[case "${withval}" in
+		y|yes) JANSSON_BUNDLED=yes ;;
+		*) JANSSON_BUNDLED=no ;;
+	esac])
+
 PJPROJECT_BUNDLED=yes
 AH_TEMPLATE(m4_bpatsubst([[HAVE_PJPROJECT_BUNDLED]], [(.*)]), [Define to 1 when using the bundled pjproject.])
 
@@ -616,6 +625,8 @@ AC_CHECK_HEADERS([ \
 
 AC_CHECK_HEADERS([arpa/inet.h libintl.h malloc.h netdb.h stddef.h strings.h sys/event.h utime.h])
 
+PKG_PROG_PKG_CONFIG()
+
 # Find required NetBSD Editline library (libedit).
 AST_PKG_CONFIG_CHECK(LIBEDIT, libedit)
 # some platforms do not list libedit via pkg-config, for example OpenBSD 6.2
@@ -652,11 +663,20 @@ fi
 AC_SUBST(UUID_INCLUDE)
 AC_SUBST(UUID_LIB)
 
-# Find required JSON support.
-AST_EXT_LIB_CHECK([JANSSON], [jansson], [json_dumps], [jansson.h])
+# Find required JSON support if bundled is not enabled.
+if test "$JANSSON_BUNDLED" = "no" ; then
+	AST_PKG_CONFIG_CHECK([JANSSON], [jansson >= 2.11])
+	# json_sprintf is available in 2.11+
+	AST_EXT_LIB_CHECK([JANSSON], [jansson], [json_sprintf], [jansson.h])
 
-if test "${PBX_JANSSON}" != 1; then
-  AC_MSG_ERROR([*** JSON support not found (this typically means the libjansson development package is missing)])
+	if test "${PBX_JANSSON}" != 1; then
+		AC_MSG_NOTICE(*** Asterisk requires libjansson >= 2.11 and no system copy was found.)
+		AC_MSG_NOTICE(*** Please install the 'libjansson' development package or)
+		AC_MSG_NOTICE(*** use './configure --with-jansson-bundled')
+		exit 1
+	fi
+else
+	PBX_JANSSON=1
 fi
 
 # See if clock_gettime is in librt
@@ -1474,9 +1494,6 @@ if test "${PBX_DLADDR}" = "0"; then
 		AC_MSG_RESULT(no)
 	)
 fi
-
-# PKGCONFIG is used in later tests
-PKG_PROG_PKG_CONFIG()
 
 
 # do the package library checks now
