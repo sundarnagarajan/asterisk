@@ -1094,13 +1094,13 @@ static void save_response_fields_to_client_state(struct registration_response *r
 		}
 		ast_str_set(&str, 0, "%.*s", (int)value.slen, value.ptr);
 		AST_VECTOR_APPEND(&response->client_state->service_route_vector, str);
-		ast_log(LOG_DEBUG, "Stored service-route: %s\n", value.ptr);
+		ast_log(LOG_DEBUG, "Stored service-route: %.*s\n", (int)value.slen, value.ptr);
 	}
 
 	if ((associated_uri_hdr = (pjsip_hdr*)pjsip_msg_find_hdr_by_name(msg, &associated_uri_str, NULL))) {
 		pj_str_t value = ((pjsip_generic_string_hdr*)associated_uri_hdr)->hvalue;
 		ast_str_set(&response->client_state->associated_uri, 0, "%.*s", (int)value.slen, value.ptr);
-		ast_log(LOG_DEBUG, "Stored associated uri: %s\n", value.ptr);
+		ast_log(LOG_DEBUG, "Stored associated uri: %.*s\n", (int)value.slen, value.ptr);
 	}
 }
 
