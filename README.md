@@ -40,7 +40,7 @@ bind=0.0.0.0:5061
 type=registration
 outbound_auth=gvsip1
 server_uri=sip:obihai.sip.google.com
-outbound_proxy=sip:obihai.telephony.goog:5061\;transport=tls\;lr\;hide
+outbound_proxy=sip:voice.telephony.goog:5061\;transport=tls\;lr\;hide
 client_uri=sip:<your choice for unique user identifier>@obihai.sip.google.com
 retry_interval=60
 support_path=yes
@@ -71,7 +71,7 @@ disallow=all
 allow=ulaw
 allow=opus
 outbound_auth=gvsip1
-outbound_proxy=sip:obihai.telephony.goog:5061\;transport=tls\;lr\;hide
+outbound_proxy=sip:voice.telephony.goog:5061\;transport=tls\;lr\;hide
 aors=gvsip1
 direct_media=no
 ice_support=yes
@@ -84,7 +84,7 @@ outbound_registration=gvsip1
 type=registration
 outbound_auth=gvsip2
 server_uri=sip:obihai.sip.google.com
-outbound_proxy=sip:obihai.telephony.goog:5061\;transport=tls\;lr\;hide
+outbound_proxy=sip:voice.telephony.goog:5061\;transport=tls\;lr\;hide
 client_uri=sip:<your choice for 2nd unique user identifier>@obihai.sip.google.com
 retry_interval=60
 support_path=yes
@@ -115,7 +115,7 @@ disallow=all
 allow=ulaw
 allow=opus
 outbound_auth=gvsip2
-outbound_proxy=sip:obihai.telephony.goog:5061\;transport=tls\;lr\;hide
+outbound_proxy=sip:voice.telephony.goog:5061\;transport=tls\;lr\;hide
 aors=gvsip2
 direct_media=no
 ice_support=yes
