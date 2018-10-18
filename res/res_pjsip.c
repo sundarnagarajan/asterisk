@@ -398,6 +398,9 @@
 				<configOption name="outbound_proxy">
 					<synopsis>Full SIP URI of the outbound proxy used to send requests</synopsis>
 				</configOption>
+				<configOption name="outbound_registration">
+					<synopsis>Name of the registration config associated with this endpoint</synopsis>
+				</configOption>
 				<configOption name="rewrite_contact">
 					<synopsis>Allow Contact header to be rewritten with the source IP address-port</synopsis>
 					<description><para>
@@ -1136,11 +1139,12 @@
 						This option specifies which of the password style config options should be read
 						when trying to authenticate an endpoint inbound request. If set to <literal>userpass</literal>
 						then we'll read from the 'password' option. For <literal>md5</literal> we'll read
-						from 'md5_cred'.
+						from 'md5_cred'. If set to <literal>oauth</literal> then we'll read from the refresh_toke/oauth_client_id/oauth_secret fields.
 						</para>
 						<enumlist>
 							<enum name="md5"/>
 							<enum name="userpass"/>
+							<enum name="oauth"/>
 						</enumlist>
 					</description>
 				</configOption>
@@ -1154,6 +1158,15 @@
 				<configOption name="password">
 					<synopsis>Plain text password used for authentication.</synopsis>
 					<description><para>Only used when auth_type is <literal>userpass</literal>.</para></description>
+				</configOption>
+				<configOption name="refresh_token">
+					<synopsis>Google OAuth 2.0 refresh token</synopsis>
+				</configOption>
+				<configOption name="oauth_clientid">
+					<synopsis>Google OAuth 2.0 application's client id</synopsis>
+				</configOption>
+				<configOption name="oauth_secret">
+					<synopsis>Google OAuth 2.0 application's secret</synopsis>
 				</configOption>
 				<configOption name="realm">
 					<synopsis>SIP realm for endpoint</synopsis>
@@ -2137,6 +2150,9 @@
 				<parameter name="OutboundProxy">
 					<para><xi:include xpointer="xpointer(/docs/configInfo[@name='res_pjsip']/configFile[@name='pjsip.conf']/configObject[@name='endpoint']/configOption[@name='outbound_proxy']/synopsis/node())"/></para>
 				</parameter>
+				<parameter name="OutboundRegistration">
+					<para><xi:include xpointer="xpointer(/docs/configInfo[@name='res_pjsip']/configFile[@name='pjsip.conf']/configObject[@name='endpoint']/configOption[@name='outbound_registration']/synopsis/node())"/></para>
+				</parameter>
 				<parameter name="MohSuggest">
 					<para><xi:include xpointer="xpointer(/docs/configInfo[@name='res_pjsip']/configFile[@name='pjsip.conf']/configObject[@name='endpoint']/configOption[@name='moh_suggest']/synopsis/node())"/></para>
 				</parameter>
@@ -2795,6 +2811,14 @@ static pj_sockaddr host_ip_ipv6;
 /*! Local host address for IPv6 (string form) */
 static char host_ip_ipv6_string[PJ_INET6_ADDRSTRLEN];
 
+static transport_from_endpoint_callback transport_from_endpoint_override_callback;
+
+void ast_sip_set_transport_from_endpoint_override(transport_from_endpoint_callback callback)
+{
+	ast_log(LOG_DEBUG, "Transport override set!\n");
+	transport_from_endpoint_override_callback = callback;
+}
+
 static int register_service(void *data)
 {
 	pjsip_module **module = data;
@@ -3269,6 +3293,7 @@ int ast_sip_dlg_set_transport(const struct ast_sip_endpoint *endpoint, pjsip_dia
 	pjsip_tpselector *selector)
 {
 	pjsip_sip_uri *uri;
+	pjsip_transport* transport;
 	pjsip_tpselector sel = { .type = PJSIP_TPSELECTOR_NONE, };
 
 	uri = pjsip_uri_get_uri(dlg->target);
@@ -3277,6 +3302,14 @@ int ast_sip_dlg_set_transport(const struct ast_sip_endpoint *endpoint, pjsip_dia
 	}
 
 	ast_sip_set_tpselector_from_ep_or_uri(endpoint, uri, selector);
+
+	if (transport_from_endpoint_override_callback && transport_from_endpoint_override_callback(endpoint, &transport)) {
+		ast_log(LOG_DEBUG, "Overriding endpoint transport to use %p\n", (void*)transport);
+
+		selector->type = PJSIP_TPSELECTOR_TRANSPORT;
+		selector->u.transport = transport;
+	}
+
 	pjsip_dlg_set_transport(dlg, selector);
 
 	return 0;

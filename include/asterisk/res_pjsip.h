@@ -401,6 +401,8 @@ enum ast_sip_auth_type {
 	AST_SIP_AUTH_TYPE_USER_PASS,
 	/*! Credentials stored as an MD5 sum */
 	AST_SIP_AUTH_TYPE_MD5,
+	/*! Oauth */
+	AST_SIP_AUTH_TYPE_OAUTH,
 	/*! Credentials not stored this is a fake auth */
 	AST_SIP_AUTH_TYPE_ARTIFICIAL
 };
@@ -419,6 +421,12 @@ struct ast_sip_auth {
 		AST_STRING_FIELD(auth_pass);
 		/*! Authentication credentials in MD5 format (hash of user:realm:pass) */
 		AST_STRING_FIELD(md5_creds);
+		/*! Refresh token to use for OAuth authentication */
+		AST_STRING_FIELD(refresh_token);
+		/*! Client ID to use for OAuth authentication */
+		AST_STRING_FIELD(oauth_clientid);
+		/*! Secret to use for OAuth authentication */
+		AST_STRING_FIELD(oauth_secret);
 	);
 	/*! The time period (in seconds) that a nonce may be reused */
 	unsigned int nonce_lifetime;
@@ -734,6 +742,8 @@ struct ast_sip_endpoint {
 		AST_STRING_FIELD(transport);
 		/*! Outbound proxy to use */
 		AST_STRING_FIELD(outbound_proxy);
+		/*! Outbound registration associated with this endpoint */
+		AST_STRING_FIELD(outbound_registration);
 		/*! Explicit AORs to dial if none are specified */
 		AST_STRING_FIELD(aors);
 		/*! Musiconhold class to suggest that the other side use when placing on hold */
@@ -3185,5 +3195,14 @@ void ast_sip_transport_state_register(struct ast_sip_tpmgr_state_callback *eleme
  * \return Nothing
  */
 void ast_sip_transport_state_unregister(struct ast_sip_tpmgr_state_callback *element);
+
+/*!
+ * \brief Register an override to the default selection of transports based on endpoint name
+ * \since gvsip
+ *
+ * \param callback Callback to evoke when determining the transport when creating a new dialog
+ */
+typedef int (*transport_from_endpoint_callback)(const struct ast_sip_endpoint *endpoint, pjsip_transport** transport);
+void ast_sip_set_transport_from_endpoint_override(transport_from_endpoint_callback callback);
 
 #endif /* _RES_PJSIP_H */
